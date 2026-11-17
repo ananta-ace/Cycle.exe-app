@@ -1,0 +1,404 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth, isSuperAdminEmail } from '../context/AuthContext';
+import { uploadImage, isImageFile } from '../utils/imageUpload';
+
+export const ProfileView: React.FC = () => {
+  const {
+    user,
+    profile,
+    role,
+    isSuperAdmin,
+    isAdmin,
+    updateProfileDetails,
+    redeemInvitation,
+    signOutUser,
+  } = useAuth();
+
+  const [displayName, setDisplayName] = useState(profile?.displayName || '');
+  const [bio, setBio] = useState(profile?.bio || '');
+  const [photoURL, setPhotoURL] = useState(profile?.photoURL || '');
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarProgress, setAvatarProgress] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isEditing && profile) {
+      setDisplayName(profile.displayName || '');
+      setBio(profile.bio || '');
+      setPhotoURL(profile.photoURL || '');
+    }
+  }, [profile, isEditing]);
+
+  // Invitation code state
+  const [inviteCode, setInviteCode] = useState('');
+  const [activating, setActivating] = useState(false);
+  const [codeMsg, setCodeMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  if (!user) {
+    return (
+      <div className="neo-card max-w-md mx-auto text-center py-12">
+        <i className="fas fa-user-lock text-4xl text-[#b45309] mb-3"></i>
+        <h2 className="text-xl font-bold mb-1">Sign In Required</h2>
+        <p className="text-xs text-zinc-600 mb-4">Please sign in to view and manage your profile.</p>
+      </div>
+    );
+  }
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      setSaveMsg(null);
+      setSaveError(null);
+      await updateProfileDetails(displayName, bio, photoURL);
+      setSaveMsg('Profile saved successfully!');
+      setIsEditing(false);
+      setTimeout(() => setSaveMsg(null), 3500);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to update profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRedeemCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteCode.trim()) return;
+
+    try {
+      setActivating(true);
+      setCodeMsg(null);
+      const res = await redeemInvitation(inviteCode.trim());
+      setCodeMsg({ type: 'success', text: res.message });
+      setInviteCode('');
+    } catch (err: unknown) {
+      setCodeMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Invalid invitation code',
+      });
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (!isImageFile(file)) {
+      setSaveError('Please select a valid image file (PNG, JPG, WebP, GIF).');
+      return;
+    }
+
+    try {
+      setUploadingAvatar(true);
+      setSaveError(null);
+      setSaveMsg(null);
+      setAvatarProgress(10);
+      const url = await uploadImage(file, {
+        folder: 'avatars',
+        onProgress: (p) => setAvatarProgress(p),
+      });
+      setPhotoURL(url);
+      await updateProfileDetails(
+        displayName || profile?.displayName || user.displayName || 'Cyclist',
+        bio || profile?.bio || '',
+        url
+      );
+      setSaveMsg('Profile photo uploaded and saved for everyone!');
+      setTimeout(() => setSaveMsg(null), 4000);
+    } catch (err: unknown) {
+      console.error('Failed to upload avatar:', err);
+      setSaveError(
+        err instanceof Error ? err.message : 'Failed to upload avatar image. Please try again.'
+      );
+    } finally {
+      setUploadingAvatar(false);
+      setAvatarProgress(null);
+    }
+  };
+
+  return (
+    <div className="max-w-4xl lg:max-w-5xl mx-auto space-y-8">
+      {/* Profile Card */}
+      <div className="neo-card p-6 sm:p-9">
+        <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
+          <div className="relative group">
+            <div className="w-32 h-32 rounded-full border-4 border-zinc-900 bg-zinc-200 overflow-hidden flex items-center justify-center font-bold text-4xl shadow-[0_6px_0_#d6d2ca] flex-shrink-0 relative">
+              {uploadingAvatar ? (
+                <div className="absolute inset-0 bg-black/60 text-white flex flex-col items-center justify-center p-2 text-center z-10">
+                  <i className="fas fa-spinner fa-spin text-2xl mb-1 text-[#f9c74f]"></i>
+                  <span className="text-[10px] font-bold">
+                    {avatarProgress !== null ? `${avatarProgress}%` : 'Uploading...'}
+                  </span>
+                </div>
+              ) : null}
+              {photoURL || profile?.photoURL ? (
+                <img
+                  src={photoURL || profile?.photoURL}
+                  alt={profile?.displayName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                profile?.displayName?.charAt(0).toUpperCase() || 'U'
+              )}
+            </div>
+            <label
+              title="Upload profile picture (any size)"
+              className={`absolute bottom-0 right-0 w-9 h-9 rounded-full bg-[#1e1e1e] text-[#f9c74f] border-2 border-zinc-900 flex items-center justify-center cursor-pointer text-sm hover:bg-[#b45309] shadow-md ${
+                uploadingAvatar ? 'opacity-50 pointer-events-none' : ''
+              }`}
+            >
+              <i className={uploadingAvatar ? 'fas fa-spinner fa-spin' : 'fas fa-camera'}></i>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarUpload}
+                disabled={uploadingAvatar}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+          <div className="flex-1 text-center md:text-left">
+            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mb-2">
+              <h2 className="text-2xl sm:text-3xl font-black text-zinc-900">{profile?.displayName || 'Cyclist'}</h2>
+              <span className={`role-badge ${role}`}>
+                <i className="fas fa-shield-alt text-[0.6rem]"></i> {role}
+              </span>
+            </div>
+
+            <p className="text-xs sm:text-sm text-zinc-500 mb-4">
+              <i className="fas fa-envelope mr-1.5 text-zinc-400"></i> {user.email} · Registered{' '}
+              {new Date(profile?.createdAt || Date.now()).toLocaleDateString()}
+            </p>
+
+            <div className="bg-[#f6f3ee] p-4 sm:p-5 rounded-2xl border border-zinc-300 text-sm text-zinc-700 min-h-[70px] whitespace-pre-line mb-5 leading-relaxed">
+              {profile?.bio || <span className="italic text-zinc-400">No bio written yet. Click edit to add your cycling background, favorite bike, and routes!</span>}
+            </div>
+
+            {saveError && (
+              <div className="p-3 mb-4 bg-red-50 border border-red-500 rounded-xl text-xs font-bold text-red-700">
+                {saveError}
+              </div>
+            )}
+
+            {saveMsg && (
+              <div className="p-3 mb-4 bg-emerald-50 border border-emerald-500 rounded-xl text-xs font-bold text-emerald-800">
+                {saveMsg}
+              </div>
+            )}
+
+            <div className="flex flex-wrap justify-center md:justify-start gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isEditing && profile) {
+                    setDisplayName(profile.displayName || '');
+                    setBio(profile.bio || '');
+                    setPhotoURL(profile.photoURL || '');
+                  }
+                  setSaveError(null);
+                  setIsEditing(!isEditing);
+                }}
+                className="btn-secondary text-xs py-1.5 px-4"
+              >
+                <i className={`fas ${isEditing ? 'fa-times' : 'fa-edit'}`}></i>{' '}
+                {isEditing ? 'Cancel Editing' : 'Edit Profile'}
+              </button>
+
+              <button
+                type="button"
+                onClick={signOutUser}
+                className="btn-secondary text-xs py-1.5 px-4 text-red-600 hover:text-red-700"
+              >
+                <i className="fas fa-sign-out-alt"></i> Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Edit Profile Form */}
+        {isEditing && (
+          <form onSubmit={handleSaveProfile} className="mt-6 pt-6 border-t-2 border-zinc-200 space-y-4">
+            <h3 className="font-bold text-sm uppercase tracking-wider text-zinc-700">Update Profile Details</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold mb-1 text-zinc-700">Display Name</label>
+                <input
+                  type="text"
+                  required
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="neo-input text-sm py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold mb-1 text-zinc-700">Profile Photo (camera icon accepts any size)</label>
+                {photoURL.startsWith('data:image/') ? (
+                  <div className="flex items-center justify-between gap-2 neo-input text-xs py-2 bg-emerald-50 border-emerald-500 text-emerald-900 font-bold">
+                    <span><i className="fas fa-check-circle mr-1"></i> Uploaded photo ready</span>
+                    <button
+                      type="button"
+                      onClick={() => setPhotoURL('')}
+                      className="text-red-600 hover:text-red-800 font-bold underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={photoURL}
+                    onChange={(e) => setPhotoURL(e.target.value)}
+                    placeholder="https://... or upload via camera icon"
+                    className="neo-input text-sm py-2"
+                  />
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold mb-1 text-zinc-700">Rider Biography</label>
+              <textarea
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                rows={3}
+                placeholder="Share your riding style, cadence, favorite trails..."
+                className="neo-input text-sm py-2 resize-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="btn-primary text-xs py-2 px-5 font-bold"
+              >
+                {saving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}{' '}
+                Save Changes
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* SECTION: "Redeem Invitation Code (Admin or Member)" */}
+      <div className="neo-card bg-[#fffdf9] border-2 border-zinc-900 shadow-[0_8px_0_#d6d2ca]">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 rounded-full bg-[#f9c74f] border-2 border-zinc-900 flex items-center justify-center text-zinc-900 font-bold text-lg">
+            <i className="fas fa-ticket-alt"></i>
+          </div>
+          <div>
+            <h3 className="text-xl font-bold">Redeem Invitation Code</h3>
+            <p className="text-xs text-zinc-600">
+              Redeem a single-use Admin or Member invitation code provided by the Super Admin.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-[#f6f3ee] p-4 rounded-2xl border border-zinc-300 mb-4">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-zinc-600">Current Role:</span>
+            <span className={`role-badge ${role}`}>{role}</span>
+          </div>
+
+          {isAdmin ? (
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-800">
+              <i className="fas fa-shield-alt text-base text-emerald-600"></i>
+              <span>You have active Administrator clearance on Cycle.exe.</span>
+            </div>
+          ) : role === 'MEMBER' ? (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-800">
+                <i className="fas fa-check-circle text-base text-emerald-600"></i>
+                <span>Your membership is active!</span>
+              </div>
+              <p className="text-xs text-zinc-600">
+                If the Super Admin provided you with an <strong>Admin Invitation Code</strong> (e.g. <code>CYCLE-ADMIN-...</code>), enter it below to upgrade to <strong>Admin</strong>.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-600 leading-relaxed">
+              You are currently registered as a <strong>Public User</strong>. Enter an invitation code from the Super Admin below to activate <strong>Admin</strong> or <strong>Member</strong> privileges.
+            </p>
+          )}
+        </div>
+
+        {/* Code Activation Form for anyone not yet an Admin */}
+        {!isAdmin && (
+          <form onSubmit={handleRedeemCode} className="space-y-3">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider mb-1 text-zinc-700">
+                Secret Invitation Code
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  required
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. CYCLE-ADMIN-A8B2-9F1C"
+                  className="neo-input uppercase tracking-wider font-mono text-sm py-2.5 flex-1"
+                />
+                <button
+                  type="submit"
+                  disabled={activating}
+                  className="btn-primary text-xs py-2 px-5 font-bold whitespace-nowrap"
+                >
+                  {activating ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin"></i> Verifying...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-unlock-alt"></i> Redeem Code
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {codeMsg && (
+              <div
+                className={`p-3 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                  codeMsg.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                    : 'bg-red-50 border-red-500 text-red-700'
+                }`}
+              >
+                <i
+                  className={`fas ${
+                    codeMsg.type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'
+                  }`}
+                ></i>
+                <span>{codeMsg.text}</span>
+              </div>
+            )}
+          </form>
+        )}
+      </div>
+
+      {/* Super Admin Notice if Designated Owner */}
+      {isSuperAdminEmail(user.email) && (
+        <div className="p-4 bg-amber-50 border-2 border-amber-400 rounded-2xl flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <i className="fas fa-crown text-2xl text-amber-600"></i>
+            <div>
+              <div className="text-sm font-bold text-amber-900">Super Admin Privileges</div>
+              <div className="text-xs text-amber-800">
+                {isSuperAdmin
+                  ? 'Your account holds the highest authority in Cycle.exe 2.0.'
+                  : 'Click the banner at the top of the page to bootstrap your Super Admin account.'}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

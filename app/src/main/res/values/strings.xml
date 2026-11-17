@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Cycle.exe</string>
+    <string name="brand_title">CYCLE</string>
+    <string name="brand_suffix">.exe</string>
+    <string name="brand_version">2.0</string>
+    <string name="motto_quote">Ride fast, ride far, ride together.</string>
+    <string name="motto_sub">— Cycle.exe · est. 2026 —</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_missions">Missions</string>
+    <string name="nav_gallery">Gallery</string>
+    <string name="nav_crew">Crew</string>
+    <string name="nav_profile">Profile</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="sign_in_google_cta">Continue with Google</string>
+    <string name="sign_in_google_browser">Browser Google Sign-In</string>
+    <string name="sign_in_subtitle">Log weekend expeditions, share ride photos, rate crew leaders, and join the Cycle.exe peloton.</string>
+    <string name="sign_in_helper_note">Browser Sign-In works reliably across all Android devices and APK builds.</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="notifications_title">Notifications &amp; Notices</string>
+</resources>

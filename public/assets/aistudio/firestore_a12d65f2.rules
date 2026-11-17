@@ -1,0 +1,301 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'ananta.base@gmail.com' && request.auth.token.email_verified == true) ||
+        (request.auth.token.email == 'towhidulislamananta@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isSuspended != true
+      );
+    }
+
+    function isMember() {
+      return isAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'MEMBER' ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdminMember == true ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.adminMembershipStatus == 'APPROVED'
+        ) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isSuspended != true
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if true;
+
+      allow create: if isValidId(userId) && request.resource.data.id == userId && (
+        (isSuperAdmin() && request.resource.data.role == 'SUPER_ADMIN') ||
+        (isSignedIn() && request.auth.uid == userId && request.resource.data.role == 'PUBLIC' && request.resource.data.isSuspended == false)
+      );
+
+      allow update: if isValidId(userId) && (
+        isSuperAdmin() ||
+        (
+          isOwner(userId) &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.isSuspended == resource.data.isSuspended &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.displayName is string &&
+          request.resource.data.displayName.size() <= 80 &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'bio', 'customTitle', 'welcomeSeenForRole', 'adminMembershipStatus', 'updatedAt'])
+        ) ||
+        (
+          // Allow rating updates to be aggregated
+          isSignedIn() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratingAverage', 'ratingCount', 'updatedAt'])
+        )
+      );
+
+      allow delete: if isSuperAdmin();
+
+      // Private user info
+      match /private/info {
+        allow read, write: if isValidId(userId) && (isOwner(userId) || isSuperAdmin());
+      }
+
+      // Member Ratings subcollection
+      match /ratings/{raterId} {
+        allow get, list: if isValidId(userId) && isValidId(raterId);
+        allow create, update: if isValidId(userId) && isValidId(raterId) &&
+          isSignedIn() &&
+          request.auth.uid == raterId &&
+          request.auth.uid != userId &&
+          request.resource.data.rating >= 1 &&
+          request.resource.data.rating <= 5;
+        allow delete: if isValidId(raterId) && (request.auth.uid == raterId || isSuperAdmin());
+      }
+    }
+
+    // Featured Members Collection (Home Screen Leadership Crew - Super Admin Managed)
+    match /featuredMembers/{memberId} {
+      allow get, list: if true;
+      allow create, delete: if isSuperAdmin();
+      allow update: if isSuperAdmin() || (
+        isSignedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratingAverage', 'ratingCount', 'updatedAt'])
+      );
+
+      // Ratings on featured members
+      match /ratings/{raterId} {
+        allow get, list: if isValidId(memberId) && isValidId(raterId);
+        allow create, update: if isValidId(memberId) && isValidId(raterId) &&
+          isSignedIn() &&
+          request.auth.uid == raterId &&
+          request.resource.data.rating >= 1 &&
+          request.resource.data.rating <= 5;
+        allow delete: if isValidId(raterId) && (request.auth.uid == raterId || isSuperAdmin());
+      }
+    }
+
+    // Applications Collection (Admin Membership)
+    match /applications/{appId} {
+      allow get: if isValidId(appId) && isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+
+      allow list: if isSignedIn();
+
+      allow create: if isValidId(appId) && isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'PENDING';
+
+      allow update: if isValidId(appId) && (
+        isSuperAdmin() ||
+        (
+          isAdmin() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['adminRecommendations', 'updatedAt'])
+        ) ||
+        (
+          isSignedIn() &&
+          resource.data.userId == request.auth.uid &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.status == 'PENDING'
+        )
+      );
+
+      allow delete: if isValidId(appId) && (
+        isSuperAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid)
+      );
+    }
+
+    // Notifications Collection
+    match /notifications/{notifId} {
+      allow get, list: if isSignedIn();
+
+      allow create: if isSignedIn();
+
+      allow update: if isSignedIn() && (
+        resource.data.recipientId == request.auth.uid ||
+        resource.data.recipientId == 'SUPER_ADMIN' ||
+        resource.data.recipientId == 'ADMINS' ||
+        resource.data.recipientId == 'ALL_ADMINS' ||
+        resource.data.senderId == request.auth.uid ||
+        isSuperAdmin()
+      ) && (
+        isSuperAdmin() ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isRead',
+          'readAt',
+          'deliveryStatus',
+          'replies',
+          'replyCount',
+          'lastRepliedAt',
+          'hasNewReply',
+          'updatedAt'
+        ])
+      );
+
+      allow delete: if isSuperAdmin() || (isSignedIn() && resource.data.recipientId == request.auth.uid);
+    }
+
+    // Gallery Collection (Super Admin Managed)
+    match /gallery/{photoId} {
+      allow get, list: if true;
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Posts Collection
+    match /posts/{postId} {
+      allow get: if isValidId(postId) && (resource.data.isHidden != true || isAdmin());
+      allow list: if true;
+
+      allow create: if isMember() && isValidId(postId) &&
+        request.resource.data.authorId == request.auth.uid &&
+        request.resource.data.content is string &&
+        request.resource.data.content.size() <= 2000 &&
+        request.resource.data.likesCount == 0 &&
+        request.resource.data.commentsCount == 0 &&
+        request.resource.data.isHidden == false;
+
+      allow update: if isValidId(postId) && (
+        isSuperAdmin() ||
+        (
+          isAdmin() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isHidden'])
+        ) ||
+        (
+          isMember() &&
+          resource.data.authorId == request.auth.uid &&
+          request.resource.data.authorId == resource.data.authorId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'photoURLs', 'updatedAt'])
+        ) ||
+        (
+          isMember() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentsCount'])
+        )
+      );
+
+      allow delete: if isValidId(postId) && (
+        isSuperAdmin() ||
+        (resource.data.authorId == request.auth.uid)
+      );
+
+      // Post Likes subcollection
+      match /likes/{userId} {
+        allow read: if isValidId(postId) && isValidId(userId);
+        allow create: if isMember() && isValidId(userId) && request.auth.uid == userId;
+        allow delete: if isValidId(userId) && (request.auth.uid == userId || isSuperAdmin());
+      }
+
+      // Post Comments subcollection
+      match /comments/{commentId} {
+        allow get: if isValidId(postId) && isValidId(commentId);
+        allow list: if isValidId(postId);
+
+        allow create: if isMember() && isValidId(commentId) &&
+          request.resource.data.authorId == request.auth.uid &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() <= 1000 &&
+          request.resource.data.isReported == false &&
+          request.resource.data.isDeleted == false;
+
+        allow update: if isValidId(commentId) && (
+          isSuperAdmin() ||
+          (
+            isAdmin() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isReported'])
+          ) ||
+          (
+            resource.data.authorId == request.auth.uid &&
+            request.resource.data.authorId == resource.data.authorId &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'updatedAt'])
+          ) ||
+          (
+            isMember() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['replyCount', 'updatedAt'])
+          )
+        );
+
+        allow delete: if isValidId(commentId) && (
+          isSuperAdmin() ||
+          (resource.data.authorId == request.auth.uid)
+        );
+      }
+    }
+
+    // Reports Collection
+    match /reports/{reportId} {
+      allow get: if isValidId(reportId) && (isAdmin() || (isSignedIn() && resource.data.reporterId == request.auth.uid));
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn() && isValidId(reportId) &&
+        request.resource.data.reporterId == request.auth.uid &&
+        request.resource.data.status == 'PENDING';
+
+      allow update: if isValidId(reportId) && isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'moderatorNotes']);
+
+      allow delete: if isValidId(reportId) && isSuperAdmin();
+    }
+
+    // Missions Collection (Super Admin Managed)
+    match /missions/{missionId} {
+      allow get, list: if true;
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Invitation Codes Collection (Super Admin Exclusive)
+    match /invitationCodes/{codeId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // Audit Logs Collection (Super Admin Exclusive)
+    match /auditLogs/{logId} {
+      allow read, write: if isSuperAdmin();
+    }
+  }
+}
