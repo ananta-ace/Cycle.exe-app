@@ -80,6 +80,7 @@ import com.example.ui.theme.GoldAccent
 import com.example.ui.theme.LocalCyclePalette
 import com.example.ui.viewmodel.AdminViewModel
 import com.example.ui.viewmodel.AppSessionState
+import java.util.Locale
 
 private enum class SuperAdminTab(val label: String, val icon: ImageVector) {
     FEATURED("Featured", Icons.Filled.Star),
@@ -308,7 +309,12 @@ fun SuperAdminDashboardScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("#${member.order} • ${member.name}", style = MaterialTheme.typography.titleMedium, color = palette.textPrimary)
                                 Text(member.title, style = MaterialTheme.typography.bodySmall, color = palette.accentBronze)
-                                Text("${member.badges.size} badges • ${member.resolvedRaceCount()} races", style = MaterialTheme.typography.labelSmall, color = palette.textMuted)
+                                val ratingSummary = if (member.ratingAverage > 0.0 || member.ratingCount > 0L) {
+                                    String.format(Locale.US, "★ %.1f (%d)", member.ratingAverage, member.ratingCount)
+                                } else {
+                                    "No ratings yet"
+                                }
+                                Text("${member.badges.size} badges • ${member.resolvedRaceCount()} races • $ratingSummary", style = MaterialTheme.typography.labelSmall, color = palette.textMuted)
                             }
                             IconButton(
                                 onClick = {

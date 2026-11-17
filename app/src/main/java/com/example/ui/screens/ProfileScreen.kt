@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.CircularProgressIndicator
@@ -68,6 +69,7 @@ import com.example.ui.theme.JetBrainsMonoFontFamily
 import com.example.ui.theme.LocalCyclePalette
 import com.example.ui.viewmodel.AppSessionState
 import com.example.util.DateUtils
+import java.util.Locale
 
 @Composable
 fun ProfileScreen(
@@ -298,6 +300,32 @@ fun ProfileScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = palette.textMuted
                             )
+                        }
+                        if (profile != null && (profile.ratingAverage > 0.0 || profile.ratingCount > 0L)) {
+                            Spacer(Modifier.height(4.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Star,
+                                    contentDescription = null,
+                                    tint = GoldAccent,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = String.format(
+                                        Locale.US,
+                                        "%.1f / 5.0 (%d %s)",
+                                        profile.ratingAverage,
+                                        profile.ratingCount,
+                                        if (profile.ratingCount == 1L) "rating" else "ratings"
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = palette.textPrimary
+                                )
+                            }
                         }
                     }
                 }

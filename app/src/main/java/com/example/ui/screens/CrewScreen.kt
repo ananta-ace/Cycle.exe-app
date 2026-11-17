@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PedalBike
@@ -31,10 +33,12 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,6 +64,7 @@ import com.example.ui.theme.GoldAccent
 import com.example.ui.theme.LocalCyclePalette
 import com.example.ui.viewmodel.AppSessionState
 import com.example.ui.viewmodel.CrewViewModel
+import kotlinx.coroutines.delay
 import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -69,14 +75,48 @@ fun CrewScreen(
     onOpenSignIn: () -> Unit,
     onOpenApplication: () -> Unit,
     onOpenSuperAdmin: () -> Unit,
+    isSignInDialogOpen: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalCyclePalette.current
     val membersState by viewModel.membersState.collectAsStateWithLifecycle()
     val members = membersState.items
+    val selectedMemberRatings by viewModel.selectedMemberRatings.collectAsStateWithLifecycle()
+    val ratingNotice by viewModel.ratingNotice.collectAsStateWithLifecycle()
 
     var selectedMember by remember { mutableStateOf<FeaturedMember?>(null) }
     var ratingMember by remember { mutableStateOf<FeaturedMember?>(null) }
+    var pendingRatingMember by remember { mutableStateOf<FeaturedMember?>(null) }
+    var awaitedSignIn by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedMember?.id) {
+        viewModel.observeRatingsForMember(selectedMember?.id)
+    }
+
+    LaunchedEffect(isSignInDialogOpen, session.user?.uid) {
+        if (isSignInDialogOpen) {
+            awaitedSignIn = true
+        } else if (awaitedSignIn && session.user == null) {
+            awaitedSignIn = false
+            pendingRatingMember = null
+        }
+    }
+
+    LaunchedEffect(session.user?.uid, pendingRatingMember) {
+        val pending = pendingRatingMember
+        if (session.user != null && pending != null) {
+            awaitedSignIn = false
+            pendingRatingMember = null
+            ratingMember = members.firstOrNull { it.id == pending.id } ?: pending
+        }
+    }
+
+    LaunchedEffect(ratingNotice) {
+        if (!ratingNotice.isNullOrBlank()) {
+            delay(4000)
+            viewModel.clearRatingNotice()
+        }
+    }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val columns = when {
@@ -370,6 +410,7 @@ fun CrewScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val hasRating = member.ratingAverage > 0.0 || member.ratingCount > 0L
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -377,24 +418,32 @@ fun CrewScreen(
                                 Icon(
                                     imageVector = Icons.Filled.Star,
                                     contentDescription = null,
-                                    tint = GoldAccent,
+                                    tint = if (hasRating) GoldAccent else palette.textMuted,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
-                                    text = if (member.ratingCount > 0) {
-                                        String.format(Locale.US, "%.1f (%d)", member.ratingAverage, member.ratingCount)
-                                    } else {
-                                        "No ratings"
+                                    text = when {
+                                        member.ratingCount > 0L ->
+                                            String.format(Locale.US, "%.1f (%d)", member.ratingAverage, member.ratingCount)
+                                        member.ratingAverage > 0.0 ->
+                                            String.format(Locale.US, "%.1f", member.ratingAverage)
+                                        else -> "Not rated yet"
                                     },
                                     style = MaterialTheme.typography.labelLarge,
-                                    color = palette.textPrimary
+                                    fontStyle = if (hasRating) FontStyle.Normal else FontStyle.Italic,
+                                    color = if (hasRating) palette.textPrimary else palette.textMuted
                                 )
                             }
 
                             NeoSecondaryButton(
                                 text = "Rate Rider",
                                 onClick = {
-                                    if (session.user == null) onOpenSignIn() else ratingMember = member
+                                    if (session.user == null) {
+                                        pendingRatingMember = member
+                                        onOpenSignIn()
+                                    } else {
+                                        ratingMember = member
+                                    }
                                 },
                                 leadingIcon = {
                                     Icon(
@@ -411,16 +460,75 @@ fun CrewScreen(
                 }
             }
         }
+
+        if (!ratingNotice.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                NeoCard(
+                    containerColor = palette.accentGreenBg,
+                    borderColor = palette.accentGreen,
+                    shadowColor = palette.accentGreen,
+                    shadowOffset = 3.dp,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = palette.accentGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = ratingNotice.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = palette.accentGreen
+                            )
+                        }
+                        IconButton(
+                            onClick = { viewModel.clearRatingNotice() },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Dismiss notice",
+                                tint = palette.accentGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     selectedMember?.let { member ->
         val fresh = members.firstOrNull { it.id == member.id } ?: member
         MemberDetailSheet(
             member = fresh,
+            ratings = selectedMemberRatings,
             onDismiss = { selectedMember = null },
             onRateClick = {
                 selectedMember = null
-                if (session.user == null) onOpenSignIn() else ratingMember = fresh
+                if (session.user == null) {
+                    pendingRatingMember = fresh
+                    onOpenSignIn()
+                } else {
+                    ratingMember = fresh
+                }
             }
         )
     }
@@ -431,7 +539,11 @@ fun CrewScreen(
             member = fresh,
             session = session,
             viewModel = viewModel,
-            onDismiss = { ratingMember = null }
+            onDismiss = { ratingMember = null },
+            onOpenSignIn = {
+                pendingRatingMember = fresh
+                onOpenSignIn()
+            }
         )
     }
 }

@@ -76,6 +76,7 @@ import com.example.ui.theme.CharcoalInk
 import com.example.ui.theme.GoldAccent
 import com.example.ui.theme.LocalCyclePalette
 import com.example.util.DateUtils
+import java.util.Locale
 
 @Composable
 fun UserInspectorDialog(
@@ -124,6 +125,12 @@ fun UserInspectorDialog(
                 Text("Custom Title: ${user.customTitle?.ifBlank { "None" } ?: "None"}", style = MaterialTheme.typography.bodySmall, color = palette.textPrimary)
                 Text("Membership: ${user.adminMembershipStatus} | AdminMember=${user.isAdminMember}", style = MaterialTheme.typography.bodySmall, color = palette.textSecondary)
                 Text("Status: ${if (user.isSuspended) "SUSPENDED" else "ACTIVE"}", style = MaterialTheme.typography.bodySmall, color = if (user.isSuspended) palette.errorFg else palette.accentGreen)
+                val userRatingLabel = if (user.ratingAverage > 0.0 || user.ratingCount > 0L) {
+                    String.format(Locale.US, "%.1f / 5.0 (%d reviews)", user.ratingAverage, user.ratingCount)
+                } else {
+                    "No ratings (${user.ratingCount} reviews)"
+                }
+                Text("Community Rating: $userRatingLabel", style = MaterialTheme.typography.bodySmall, color = palette.textPrimary)
                 Text("Joined: ${DateUtils.formatShortDate(user.createdAt)}", style = MaterialTheme.typography.bodySmall, color = palette.textMuted)
                 if (!user.bio.isNullOrBlank()) {
                     Text("Bio: ${user.bio}", style = MaterialTheme.typography.bodySmall, color = palette.textSecondary)

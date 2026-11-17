@@ -497,7 +497,8 @@ private fun CycleAppShell(
                                         if (session.isSuperAdmin) {
                                             navController.navigate(ROUTE_SUPER_ADMIN) { launchSingleTop = true }
                                         }
-                                    }
+                                    },
+                                    isSignInDialogOpen = signInDialogOpen
                                 )
                             }
                             composable(ROUTE_PROFILE) {
